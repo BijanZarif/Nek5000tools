@@ -1,0 +1,151 @@
+c     This subroutine extracts and outputs a 2D fld file from a 3D
+c     calculation. As for outpost, the user is required to specify
+c     ifxyo and ifto in order to output the mesh information and
+c     temperature
+c     User input: nelxy - number of elements to be output (should be
+c                         equal to number of elements in 2D) (integer)
+c
+c
+c
+c     Example usage: 
+c     nelxy = 64
+c     ifxyo = .true. 
+c     outfld2d_k10(vx,vy,vz,pr,t,nelxy,'nnn',1)
+c
+c
+c     This will output a file 'nnn2d.fld01' which has the mesh and
+c     velocity and pressure information. This assumes that the 2D
+c     mesh has 64 elements
+c
+c
+c
+c-----------------------------------------------------------------------
+      subroutine outfld2d_k10(u,v,w,p,tt,nlxy,name,ifld)
+c
+c     Example usage: outfld2d_k10(vx,vy,vz,pr,t,64,'nnn',1)
+c     u,v,p,tt are the variables to be written out    [vx,vy,pr,t]
+c     nlxy is the number of elements in the 2D domain [64]
+c     "name" is the name of the file to be written out. ['nnn']
+c     "name" is appended with "2d" followed by ".fld" ['nnn2d.fld']
+c     ifld is the file number. example: ifld = 1      ['nnn2d.fld01]
+c     specify ifxyo and ifto to get x,y and temperature values
+c     only u,v,p are written by default
+c     Note: w is discarded since 2D does not have z-velocity
+ 
+      include 'SIZE'
+      include 'TOTAL'
+      real u (lx1,ly1,lz1,lelt)
+      real v (lx1,ly1,lz1,lelt)
+      real w (lx1,ly1,lz1,lelt)
+      real p (lx2,ly2,lz2,lelt)
+      real tt(lx1,ly1,lz1,lelt)
+      real work1(lx1,ly1)
+      common /scrcg/ pm1 (lx1,ly1,lz1,lelv)
+     $    ,pa (lx1,ly2,lz2)     ,pb (lx1,ly1,lz2)
+      common /scrns/ w1(lx1,ly1),w2(lx1,ly1),w3(lx1,ly1),w4(lx1,ly1)
+     $ ,w5(lx1,ly1),w6(lx1,ly1)
+      character*3 name
+      integer eg,e,i,j,nlxy
+      character*2  excode(15)
+      character*20 outfile
+
+      param(66) = 0
+      call mappr(pm1,p,pa,pb)
+
+      call blank(excode,30)
+c
+      if(ifxyo) then
+          excode(1) = 'X '
+          excode(2) = 'Y '
+      endif
+
+      excode(3) = 'U '
+      excode(4) = 'P '
+      if(ifto) excode(5) = 'T '
+
+      ierr = 0
+      if (nid.eq.0) then
+         call blank(outfile,20)
+         if (ifld.lt.100) then
+            write(outfile,2) name,ifld
+    2       format(a3,'2d.fld',i2.2)
+         elseif (ifld.lt.1000) then
+            write(outfile,3) name,ifld
+    3       format(a3,'2d.fld',i3)
+         elseif (ifld.lt.10000) then
+            write(outfile,4) name,ifld
+    4       format(a3,'2d.fld',i4)
+         elseif (ifld.lt.100000) then
+            write(outfile,5) name,ifld
+    5       format(a3,'2d.fld',i5)
+         elseif (ifld.lt.1000000) then
+            write(outfile,6) name,ifld
+    6       format(a3,'2d.fld',i6)
+         endif
+
+        open(unit=24,file=outfile,status='unknown')
+        call dump_header2d(excode,lx1,ly1,nlxy,1,ierr)
+      endif
+
+
+         do eg=1,nlxy
+            call nekgsync()
+            mid = gllnid(eg)
+            call rzero(w1,lx1*ly1)
+            call rzero(w2,lx1*ly1)
+            call rzero(w3,lx1*ly1)
+            call rzero(w4,lx1*ly1)
+            call rzero(w5,lx1*ly1)
+            call rzero(w6,lx1*ly1)
+          if (mid.eq.nid) then
+            e = gllel(eg)
+             do j=1,ny1
+             do i=1,nx1
+             w1(i,j) = xm1(i,j,1,e)
+             w2(i,j) = ym1(i,j,1,e)
+             w3(i,j) = u  (i,j,1,e)
+             w4(i,j) = v  (i,j,1,e)
+             w5(i,j) = pm1(i,j,1,e)
+             w6(i,j) = tt (i,j,1,e)
+            enddo
+            enddo
+          endif
+            call nekgsync()
+            call gop(w1,work1,'+  ',lx1*ly1)
+            call gop(w2,work1,'+  ',lx1*ly1)
+            call gop(w3,work1,'+  ',lx1*ly1)
+            call gop(w4,work1,'+  ',lx1*ly1)
+            call gop(w5,work1,'+  ',lx1*ly1)
+            call gop(w6,work1,'+  ',lx1*ly1)
+            call nekgsync()
+          if (nid.eq.0) then
+           do j=1,ny1
+           do i=1,nx1
+          if((ifxyo).and.(ifto)) then
+              write(24,'(1p6e14.6)') w1(i,j),w2(i,j),w3(i,j)
+     $                          ,w4(i,j),w5(i,j),w6(i,j)
+          elseif(ifxyo) then
+               write(24,'(1p5e14.6)') w1(i,j),w2(i,j),w3(i,j)
+     $                          ,w4(i,j),w5(i,j)
+          elseif(ifto) then
+                write(24,'(1p4e14.6)')w3(i,j)
+     $                          ,w4(i,j),w5(i,j),w6(i,j)
+          else
+                write(24,'(1p3e14.6)')w3(i,j)
+     $                          ,w4(i,j),w5(i,j)
+          endif
+
+           enddo
+           enddo
+          endif
+          call nekgsync()
+         enddo
+
+
+         close(24)
+      call err_chk(ierr,'Error using byte_write,outfld2d. Abort.$')
+      write(6,*) "3dto2d file written out"
+
+      return
+      end
+c-----------------------------------------------------------------------
